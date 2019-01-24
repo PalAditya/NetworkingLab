@@ -1,0 +1,221 @@
+#include <stdio.h> /* printf, sprintf */
+#include <stdlib.h> /* exit */
+#include <unistd.h> /* read, write, close */
+#include <string.h> /* memcpy, memset */
+#include <sys/socket.h> /* socket, connect */
+#include <netinet/in.h> /* struct sockaddr_in, struct sockaddr */
+#include <netdb.h> /* struct hostent, gethostbyname */
+#include <openssl/ssl.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+void error(const char *msg) { perror(msg); exit(0); }
+
+int main(int argc,char *argv[])
+{
+    int portno = 80,opt=1;
+    char *host = argv[1];
+    //char *message_fmt = "GET /mun/index.html HTTP/1.0\r\n\r\n";
+	char *base="GET %s HTTP/1.0\r\n\r\n";
+    struct hostent *server;
+    struct sockaddr_in serv_addr;
+    int sockfd, bytes, sent, total;
+    char message[256];
+    if (argc < 3) { puts("Parameters: Hostname Subindex"); exit(0); }
+    /* fill in the parameters */
+    sprintf(message,base,argv[2]);
+    printf("Request:\n%s\n",message);
+    /* create the socket */
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) error("ERROR opening socket");
+    /* lookup the ip address */
+	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) 
+	{ 
+		perror("setsockopt"); 
+		exit(EXIT_FAILURE); 
+	} 
+    server = gethostbyname(host);
+    if (server == NULL) error("ERROR, no such host");
+    /* fill in the structure */
+    memset(&serv_addr,0,sizeof(serv_addr));
+    /* send the request */
+	if(fork()==0)
+	{
+		//exit(0);
+		serv_addr.sin_family = AF_INET;
+		serv_addr.sin_port = htons(portno);
+		memcpy(&serv_addr.sin_addr.s_addr,server->h_addr,server->h_length);
+		/* connect the socket */
+		if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0)
+        error("ERROR connecting HTTP");
+		printf("HTTP...\n");
+		total = strlen(message);
+		sent = 0;
+		do {
+			bytes = write(sockfd,message+sent,total-sent);
+			if (bytes < 0)
+				error("ERROR writing message to socket");
+			if (bytes == 0)
+				break;
+			sent+=bytes;
+		} while (sent < total);
+
+		/* receive the response */
+		/*memset(response,0,sizeof(response));
+		total = sizeof(response)-1;
+		received = 0;
+		while(1)
+		{
+			do {
+				bytes = read(sockfd,response+received,total-received);
+				if (bytes < 0)
+					error("ERROR reading response from socket");
+				if (bytes == 0)
+					goto break_out;
+				received+=bytes;
+			} while (received < total);
+			// process response 
+			printf("%s",response);
+			memset(response,0,sizeof(response));
+			received=0;
+		}*/
+		char ch=' ';
+		int count=0,str_index=0,extract=0,build=0;
+		char *str="Content-Length:";
+		while((bytes=read(sockfd,&ch,1))==1)
+		{
+			printf("%c",ch);
+			if(ch=='<')
+				extract=3;
+			if(extract==3)
+				count++;
+			if(extract>=2)
+			{
+				continue;
+			}
+			if(ch==str[str_index])
+			{
+				str_index++;
+				if(str_index==15)
+					extract=1;
+			}
+			else
+			{
+				str_index=0;
+			}
+			while(extract==1)
+			{
+				bytes=read(sockfd,&ch,1);
+				printf("%c",ch);
+				if(ch=='\n')
+				{
+					extract=2;
+					break;
+				}
+				if(ch<48||ch>57)
+					continue;
+				build=build*10+(int)ch-48;
+				//printf("\nCha2: %d",(int)ch);
+			}
+		}
+
+		/*if (received == total)
+			error("ERROR storing complete response from socket");*/
+		/* close the socket */
+		if(count==build)
+			printf("\nSuccess: Complete response consumed, %d bytes\n",build);
+		else
+		{
+			printf("Failed to get complete response. Got %d bytes while content was %d bytes\n",count,build);
+		}
+		close(sockfd);
+	}
+	else
+	{
+		wait(NULL);
+		exit(0);
+		printf("HTTPS...\n");
+		serv_addr.sin_family = AF_INET;
+		portno=443;
+		serv_addr.sin_port = htons(portno);
+		memcpy(&serv_addr.sin_addr.s_addr,server->h_addr,server->h_length);
+		/* connect the socket */
+		if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0)
+        error("ERROR connecting HTTPS");
+		SSL_load_error_strings ();
+		SSL_library_init ();
+		SSL_CTX *ssl_ctx = SSL_CTX_new (SSLv23_client_method ());
+
+		// create an SSL connection and attach it to the socket
+		SSL *conn = SSL_new(ssl_ctx);
+		SSL_set_fd(conn, sockfd);
+
+		// perform the SSL/TLS handshake with the server - when on the
+		// server side, this would use SSL_accept()
+		int err = SSL_connect(conn);
+		if (err != 1)
+		   abort();
+		
+		total = strlen(message);
+		sent = 0;
+		do {
+			bytes = SSL_write(conn,message+sent,total-sent);
+			if (bytes < 0)
+				error("ERROR writing message to socket");
+			if (bytes == 0)
+				break;
+			sent+=bytes;
+		} while (sent < total);
+
+		char ch=' ';
+		int count=0,str_index=0,extract=0,build=0;
+		char *str="Content-Length:";
+		while((bytes=SSL_read(conn,&ch,1))==1)
+		{
+			printf("%c",ch);
+			if(ch=='<')
+				extract=3;
+			if(extract==3)
+				count++;
+			if(extract>=2)
+			{
+				continue;
+			}
+			if(ch==str[str_index])
+			{
+				str_index++;
+				if(str_index==15)
+					extract=1;
+			}
+			else
+			{
+				str_index=0;
+			}
+			while(extract==1)
+			{
+				bytes=read(sockfd,&ch,1);
+				printf("%c",ch);
+				if(ch=='\n')
+				{
+					extract=2;
+					break;
+				}
+				if(ch<48||ch>57)
+					continue;
+				build=build*10+(int)ch-48;
+				//printf("\nCha2: %d",(int)ch);
+			}
+		}
+		/* close the socket */
+		if(count==build)
+			printf("\nSuccess: Complete response consumed, %d bytes\n",build);
+		else
+		{
+			printf("Failed to get complete response. Got %d bytes while content was %d bytes\n",count,build);
+		}
+		SSL_shutdown(conn);
+		close(sockfd);
+		
+	}
+    
+    return 0;
+}
