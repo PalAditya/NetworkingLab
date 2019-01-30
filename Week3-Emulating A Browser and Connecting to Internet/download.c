@@ -15,7 +15,7 @@ int main(int argc,char *argv[])
     int portno = 80,opt=1;
     char *host = argv[1];
     //char *message_fmt = "GET /mun/index.html HTTP/1.0\r\n\r\n";
-	char *base="GET %s HTTP/1.0\r\n\r\n";
+	char *base="GET %s HTTP/1.1\r\n\r\n";
     struct hostent *server;
     struct sockaddr_in serv_addr;
     int sockfd, bytes, sent, total;
@@ -23,7 +23,7 @@ int main(int argc,char *argv[])
     if (argc < 3) { puts("Parameters: Hostname Subindex"); exit(0); }
     /* fill in the parameters */
     sprintf(message,base,argv[2]);
-    printf("Request:\n%s\n",message);
+    //printf("Request:\n%s\n",message);
     /* create the socket */
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) error("ERROR opening socket");
@@ -44,10 +44,9 @@ int main(int argc,char *argv[])
 		serv_addr.sin_family = AF_INET;
 		serv_addr.sin_port = htons(portno);
 		memcpy(&serv_addr.sin_addr.s_addr,server->h_addr,server->h_length);
-		/* connect the socket */
 		if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0)
         error("ERROR connecting HTTP");
-		printf("HTTP...\n");
+		//printf("HTTP...\n");
 		total = strlen(message);
 		sent = 0;
 		do {
@@ -58,36 +57,73 @@ int main(int argc,char *argv[])
 				break;
 			sent+=bytes;
 		} while (sent < total);
-
-		/* receive the response */
-		/*memset(response,0,sizeof(response));
-		total = sizeof(response)-1;
-		received = 0;
-		while(1)
-		{
-			do {
-				bytes = read(sockfd,response+received,total-received);
-				if (bytes < 0)
-					error("ERROR reading response from socket");
-				if (bytes == 0)
-					goto break_out;
-				received+=bytes;
-			} while (received < total);
-			// process response 
-			printf("%s",response);
-			memset(response,0,sizeof(response));
-			received=0;
-		}*/
 		char ch=' ';
-		int count=0,str_index=0,extract=0,build=0;
+		int count=0,print=0,str_index=0,extract=0,build=0;
 		char *str="Content-Length:";
+		char *detect="href=";
+		int detect_index=0;
+		char links[256];
 		while((bytes=read(sockfd,&ch,1))==1)
 		{
+			if(ch=='<')
+				print=1;
+			if(print)
 			printf("%c",ch);
 			if(ch=='<')
 				extract=3;
 			if(extract==3)
 				count++;
+			if(ch==detect[detect_index])
+			{
+				detect_index++;
+				if(detect_index==5)
+				{
+					detect_index=0;
+					bzero(links,sizeof(links));
+					while(1)
+					{
+						bytes=read(sockfd,&ch,1);
+						printf("%c",ch);
+						if(ch=='>')
+						{
+							detect_index--;
+							links[detect_index]='\0';
+							//printf("\n\nLinks are:%c%c %s %d\n\n",links[detect_index-1],links[detect_index-2],links,detect_index);
+							//sleep(2);
+							if(links[detect_index-1]=='s'&&links[detect_index-2]=='s')
+							{
+								bzero(message,sizeof(message));
+								sprintf(message,"GET /%s HTTP/1.0\r\n\r\n",links);
+								total = strlen(message);
+								sent = 0;
+								do {
+									bytes = write(sockfd,message+sent,total-sent);
+									if (bytes < 0)
+										error("ERROR writing message to socket");
+									if (bytes == 0)
+										break;
+									sent+=bytes;
+								} while (sent < total);
+								//printf("Sent GET request!");
+								//sleep(2);
+								printf("<style></br>");
+								while((bytes=read(sockfd,&ch,1))==1)
+									printf("%c",ch);
+								printf("</style></br>");
+							}
+							//printf("\nOne link is: %s\n",links);
+							detect_index=0;
+							break;
+						}
+						else
+						links[detect_index++]=ch;						
+					}
+				}
+			}
+			else
+			{
+				detect_index=0;
+			}
 			if(extract>=2)
 			{
 				continue;
@@ -117,16 +153,12 @@ int main(int argc,char *argv[])
 				//printf("\nCha2: %d",(int)ch);
 			}
 		}
-
-		/*if (received == total)
-			error("ERROR storing complete response from socket");*/
-		/* close the socket */
-		if(count==build)
+		/*if(count==build)
 			printf("\nSuccess: Complete response consumed, %d bytes\n",build);
 		else
 		{
 			printf("Failed to get complete response. Got %d bytes while content was %d bytes\n",count,build);
-		}
+		}*/
 		close(sockfd);
 	}
 	else
@@ -206,16 +238,15 @@ int main(int argc,char *argv[])
 			}
 		}
 		/* close the socket */
-		if(count==build)
+		/*if(count==build)
 			printf("\nSuccess: Complete response consumed, %d bytes\n",build);
 		else
 		{
 			printf("Failed to get complete response. Got %d bytes while content was %d bytes\n",count,build);
-		}
+		}*/
 		SSL_shutdown(conn);
 		close(sockfd);
 		
-	}
-    
+	}  
     return 0;
 }
