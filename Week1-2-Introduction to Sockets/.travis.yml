@@ -4,8 +4,4 @@ sudo: false
 
 compiler: gcc
 
-script:
-  - . ./build.sh
 
-after_success:
-  - . ./clean.sh
