@@ -3,3 +3,5 @@ language: c
 sudo: false
 
 compiler: gcc
+
+build: cc Week7:ErrorsAndFlowControl/crc.c Week7:ErrorsAndFlowControl/crcclient.c
