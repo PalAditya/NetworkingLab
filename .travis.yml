@@ -1,7 +1,15 @@
+#TODO: Write much more extensive tests
+
 language: c
 
 sudo: false
 
 compiler: gcc
 
-build: cc Week7:ErrorsAndFlowControl/crc.c Week7:ErrorsAndFlowControl/crcclient.c
+before_install:
+  - sudo apt-get -qq update
+
+script:
+  - cd Week1-2-"Introduction to Sockets"/
+  - gcc server.c -o server
+  - gcc client.c -o client
